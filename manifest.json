@@ -50,6 +50,16 @@
       "all_frames": true,
       "match_about_blank": true,
       "match_origin_as_fallback": true
+    },
+    {
+      "matches": [
+        "*://*.youtube.com/*",
+        "*://*.youtube-nocookie.com/*",
+        "*://music.youtube.com/*"
+      ],
+      "js": ["src/content/youtube.js"],
+      "run_at": "document_start",
+      "all_frames": false
     }
   ],
   "icons": {
