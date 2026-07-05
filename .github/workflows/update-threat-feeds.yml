@@ -1,0 +1,47 @@
+name: Daily threat-feed update
+
+on:
+  schedule:
+    - cron: "30 2 * * *" # daily 02:30 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Build threat-domains.json from feeds
+        run: node scripts/build-threat-feeds.mjs
+
+      - name: Sanity-check output
+        run: |
+          node -e '
+            const fs = require("fs");
+            const list = JSON.parse(fs.readFileSync("remote/threat-domains.json", "utf8"));
+            if (!Array.isArray(list.malware) || list.malware.length < 500) throw new Error("malware list suspiciously small: " + list.malware.length);
+            if (!Array.isArray(list.phishing) || list.phishing.length < 100) throw new Error("phishing list suspiciously small: " + list.phishing.length);
+            console.log(`OK: ${list.malware.length} malware, ${list.phishing.length} phishing`);
+          '
+
+      - name: Prune dead domains from curated blocklist
+        run: node scripts/prune-blocklist.mjs
+
+      - name: Commit and push if changed
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add remote/threat-domains.json remote/blocklist.json remote/dead-tracker.json
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "threat-feeds: daily update + liveness prune"
+            git push
+          fi

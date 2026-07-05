@@ -1,0 +1,42 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Surf Shield Settings</title>
+  <link rel="stylesheet" href="options.css" />
+</head>
+<body>
+  <h1>&#128737; Surf Shield</h1>
+  <p class="sub">Protection layers — changes apply to newly loaded pages.</p>
+
+  <div class="toggles">
+    <label><input type="checkbox" data-key="ads" />
+      <div><b>Ad &amp; tracker blocking</b><span>Network-level blocking of ad, tracker, and popunder domains (filter lists)</span></div>
+    </label>
+    <label><input type="checkbox" data-key="cosmetics" />
+      <div><b>Hide ad elements</b><span>Hides leftover ad containers and banners on pages</span></div>
+    </label>
+    <label><input type="checkbox" data-key="popups" />
+      <div><b>Popup &amp; popunder guard</b><span>Blocks windows not caused by your own click on a real link or button</span></div>
+    </label>
+    <label><input type="checkbox" data-key="overlays" />
+      <div><b>Invisible overlay killer</b><span>Neutralizes transparent full-page click traps</span></div>
+    </label>
+    <label><input type="checkbox" data-key="redirects" />
+      <div><b>Redirect-chain breaker</b><span>Stops rapid redirect chains and known popunder URL patterns</span></div>
+    </label>
+    <label><input type="checkbox" data-key="phishing" />
+      <div><b>Phishing guard</b><span>Warns on lookalike domains, punycode tricks, and brand impersonation</span></div>
+    </label>
+    <label><input type="checkbox" data-key="notifications" />
+      <div><b>Block notification prompts</b><span>Denies "click Allow to continue" scams — also blocks legitimate notification requests</span></div>
+    </label>
+    <label><input type="checkbox" data-key="downloads" />
+      <div><b>Download protection</b><span>Pauses executable downloads (.exe, .msi, .apk&hellip;) for confirmation</span></div>
+    </label>
+  </div>
+
+  <p id="saved" class="saved" hidden>Saved</p>
+  <script src="options.js"></script>
+</body>
+</html>

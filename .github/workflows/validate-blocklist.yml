@@ -1,0 +1,57 @@
+name: Validate remote blocklist
+
+on:
+  push:
+    paths: ["remote/blocklist.json"]
+  pull_request:
+    paths: ["remote/blocklist.json"]
+
+permissions:
+  contents: read
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Validate blocklist.json
+        run: |
+          node -e '
+            const fs = require("fs");
+            const list = JSON.parse(fs.readFileSync("remote/blocklist.json", "utf8"));
+
+            for (const key of ["version", "updated", "domains", "patterns", "phishingDomains"]) {
+              if (!(key in list)) throw new Error(`missing key: ${key}`);
+            }
+            if (!Number.isInteger(list.version) || list.version < 1) throw new Error("version must be a positive integer");
+            if (!/^\d{4}-\d{2}-\d{2}$/.test(list.updated)) throw new Error("updated must be YYYY-MM-DD");
+
+            const domainRe = /^(?!-)[a-z0-9-]{1,63}(?<!-)(\.(?!-)[a-z0-9-]{1,63}(?<!-))+$/;
+            const protectedDomains = ["google.com", "youtube.com", "facebook.com", "github.com", "microsoft.com", "apple.com", "amazon.com", "wikipedia.org", "cloudflare.com"];
+
+            for (const bucket of ["domains", "phishingDomains"]) {
+              if (!Array.isArray(list[bucket])) throw new Error(`${bucket} must be an array`);
+              const seen = new Set();
+              for (const d of list[bucket]) {
+                if (typeof d !== "string" || !domainRe.test(d)) throw new Error(`invalid domain in ${bucket}: ${JSON.stringify(d)}`);
+                if (seen.has(d)) throw new Error(`duplicate in ${bucket}: ${d}`);
+                seen.add(d);
+                if (protectedDomains.some((p) => d === p || d.endsWith("." + p))) throw new Error(`protected domain in ${bucket}: ${d}`);
+              }
+            }
+
+            if (!Array.isArray(list.patterns)) throw new Error("patterns must be an array");
+            // Reject catastrophic-backtracking regexes and outsized patterns before
+            // they ship to every user via daily fetch. DNR uses RE2 (no backrefs),
+            // but a bad pattern still degrades matching performance.
+            const unsafeRe = /[*+?}]\s*[*+?{]|\([^)]*\|[^)]*\)[*+]|\\[1-9]/;
+            for (const p of list.patterns) {
+              if (typeof p !== "string") throw new Error(`invalid pattern: ${JSON.stringify(p)}`);
+              if (p.length > 100) throw new Error(`pattern too long (>100 chars): ${p.slice(0, 60)}...`);
+              if (unsafeRe.test(p)) throw new Error(`unsafe regex (nested quantifiers / backref): ${p}`);
+              new RegExp(p); // throws if not a valid regex
+            }
+
+            console.log(`OK: v${list.version}, ${list.domains.length} domains, ${list.phishingDomains.length} phishing, ${list.patterns.length} patterns`);
+          '

@@ -1,0 +1,11 @@
+# Chrome-generated when loading unpacked
+_metadata/
+
+.DS_Store
+node_modules/
+*.zip
+
+# Cloudflare Worker dev/build artifacts
+worker/.dev.vars
+worker/.wrangler/
+worker/wrangler.toml.bak

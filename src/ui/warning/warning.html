@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Blocked by Surf Shield</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      min-height: 100vh;
+    }
+    .card {
+      max-width: 560px;
+      background: #16213e;
+      border: 1px solid #c0392b;
+      border-radius: 12px;
+      padding: 32px;
+    }
+    h1 { color: #e74c3c; font-size: 22px; margin: 0 0 12px; }
+    .url {
+      word-break: break-all;
+      background: #0f172a;
+      padding: 10px;
+      border-radius: 6px;
+      font-family: monospace;
+      font-size: 13px;
+      margin: 12px 0;
+    }
+    .reason { color: #f39c12; font-size: 14px; margin-bottom: 20px; }
+    button {
+      padding: 10px 18px;
+      border: none;
+      border-radius: 6px;
+      font-size: 14px;
+      cursor: pointer;
+      margin-right: 10px;
+    }
+    #back { background: #27ae60; color: #fff; }
+    #proceed { background: transparent; color: #888; border: 1px solid #444; }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>&#9888; Dangerous page blocked</h1>
+    <p>Surf Shield stopped navigation to:</p>
+    <div class="url" id="blocked-url"></div>
+    <div class="reason" id="reason"></div>
+    <button id="back">Go back to safety</button>
+    <button id="proceed">Proceed anyway (trust this site)</button>
+  </div>
+  <script src="warning.js"></script>
+</body>
+</html>

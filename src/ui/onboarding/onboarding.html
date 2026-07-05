@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Welcome to Surf Shield</title>
+  <style>
+    body {
+      margin: 0;
+      font-family: -apple-system, "Segoe UI", Roboto, sans-serif;
+      background: #1a1a2e;
+      color: #eee;
+      display: flex;
+      justify-content: center;
+      padding: 40px 16px;
+    }
+    .card {
+      max-width: 640px;
+      background: #16213e;
+      border: 1px solid #2c3e50;
+      border-radius: 12px;
+      padding: 36px;
+    }
+    h1 { color: #2ecc71; font-size: 26px; margin: 0 0 4px; }
+    .sub { color: #95a5a6; margin: 0 0 24px; }
+    h2 { font-size: 16px; color: #5dade2; margin: 24px 0 8px; }
+    p, li { font-size: 14px; line-height: 1.6; color: #ccc; }
+    ul { padding-left: 20px; margin: 8px 0; }
+    .row {
+      display: flex;
+      gap: 12px;
+      align-items: flex-start;
+      margin: 14px 0;
+    }
+    .row .icon { font-size: 22px; width: 32px; text-align: center; flex-shrink: 0; }
+    .row b { color: #eee; }
+    .btn {
+      display: inline-block;
+      border-radius: 6px;
+      padding: 3px 10px;
+      font-size: 12px;
+      color: #fff;
+      vertical-align: middle;
+    }
+    .btn.trust { background: #2980b9; }
+    .btn.block { background: #7f2d2d; }
+    .btn.report { background: #34495e; }
+    .note {
+      margin-top: 24px;
+      padding: 12px;
+      background: #0f172a;
+      border-radius: 8px;
+      font-size: 13px;
+      color: #95a5a6;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>&#128737; Surf Shield is protecting you</h1>
+    <p class="sub">No setup needed &mdash; protection is already on for every site.</p>
+
+    <h2>What it blocks</h2>
+    <ul>
+      <li>Ads, trackers, and popunder ad networks</li>
+      <li>Popups that open without a real click, and hijacked new tabs</li>
+      <li>Invisible overlays that steal your clicks</li>
+      <li>Rapid redirect chains on shady download sites</li>
+      <li>Phishing lookalike sites (fake PayPal, Google, banking pages&hellip;)</li>
+      <li>Risky file downloads (.exe and friends are paused so you can confirm)</li>
+    </ul>
+
+    <h2>The toolbar button</h2>
+    <p>Click the shield icon on any page. The red number on the icon shows how
+    many attacks were stopped <b>on that tab</b>.</p>
+
+    <div class="row">
+      <div class="icon">&#128274;</div>
+      <div><span class="btn trust">Trust this site</span> &mdash; turns Surf Shield <b>off</b> for a site that broke,
+      until you remove it from Trusted sites.</div>
+    </div>
+    <div class="row">
+      <div class="icon">&#128683;</div>
+      <div><span class="btn block">Block</span> &mdash; never load this site again in your browser.
+      Undo any time from the popup&rsquo;s Blocked sites list.</div>
+    </div>
+    <div class="row">
+      <div class="icon">&#128269;</div>
+      <div><span class="btn report">Check on VirusTotal</span> &mdash; not sure about a site?
+      One click shows what 90+ security scanners say about it.</div>
+    </div>
+
+    <h2>If a page warns you</h2>
+    <p>A red <b>&ldquo;Dangerous page blocked&rdquo;</b> screen means Surf Shield stopped a
+    phishing site or forced redirect. <b>Go back to safety</b> is almost always the
+    right choice. &ldquo;Proceed anyway&rdquo; trusts the site for 1 hour only.</p>
+
+    <div class="note">
+      Settings live behind the gear (&#9881;) in the popup &mdash; you can switch any
+      protection off individually. Surf Shield collects no data; everything stays
+      in your browser.
+    </div>
+  </div>
+</body>
+</html>

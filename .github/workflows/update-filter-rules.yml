@@ -1,0 +1,52 @@
+name: Weekly filter-list rebuild
+
+on:
+  schedule:
+    - cron: "0 3 * * 1" # Mondays 03:00 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  rebuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Rebuild rules from filter lists
+        run: node scripts/build-rules.mjs
+
+      - name: Sanity-check output
+        run: |
+          node -e '
+            const fs = require("fs");
+            const rules = JSON.parse(fs.readFileSync("rules/generated.json", "utf8"));
+            const cosmetic = JSON.parse(fs.readFileSync("rules/cosmetic.json", "utf8"));
+            if (!Array.isArray(rules) || rules.length < 10000) throw new Error("rules/generated.json suspiciously small: " + rules.length);
+            if (rules.length > 29000) throw new Error("rules/generated.json over budget: " + rules.length);
+            if (!Array.isArray(cosmetic) || cosmetic.length < 1000) throw new Error("rules/cosmetic.json suspiciously small");
+            console.log(`OK: ${rules.length} rules, ${cosmetic.length} cosmetic selectors`);
+          '
+
+      - name: Create pull request
+        uses: peter-evans/create-pull-request@v6
+        with:
+          branch: auto/filter-list-update
+          title: "Weekly filter-list update"
+          commit-message: "rules: weekly filter-list rebuild"
+          body: |
+            Automated weekly rebuild of `rules/generated.json` and `rules/cosmetic.json`
+            from AdGuard Popups, EasyPrivacy, and EasyList.
+
+            Review, merge, then bump the manifest version and cut a release so
+            store users receive the new static rules.
+          add-paths: |
+            rules/generated.json
+            rules/cosmetic.json
+          delete-branch: true

@@ -1,0 +1,20 @@
+{
+  "version": 3,
+  "updated": "2026-07-05",
+  "domains": [
+    "b7510.com",
+    "nznoaaa1.com",
+    "driverhugoverblown.com",
+    "9bet.ac",
+    "mangoprojects.info",
+    "flicksbeconer.online"
+  ],
+  "patterns": [
+    "^https?://[^/]+/afu\\.php\\?zoneid=",
+    "^https?://[^/]+/sklnk/\\d+",
+    "^https?://[^/]+/partitial/\\d+",
+    "[?&]ad_campaign_id=\\d+",
+    "[?&]cost=0\\.\\d+&currency="
+  ],
+  "phishingDomains": []
+}

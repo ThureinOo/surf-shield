@@ -1,0 +1,7 @@
+name = "surf-shield-report"
+main = "report.js"
+compatibility_date = "2025-01-01"
+
+[[kv_namespaces]]
+binding = "REPORTS_KV"
+id = "052da74d23a54fcf814fa25785c4d47e"

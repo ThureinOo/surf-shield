@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <link rel="stylesheet" href="popup.css" />
+</head>
+<body>
+  <header>
+    <span class="logo">&#128737;</span>
+    <h1>Surf Shield</h1>
+    <button id="open-options" title="Settings">&#9881;</button>
+  </header>
+
+  <section class="stats">
+    <div class="stat"><span id="stat-popups">0</span><label>Popups</label></div>
+    <div class="stat"><span id="stat-overlays">0</span><label>Overlays</label></div>
+    <div class="stat"><span id="stat-redirects">0</span><label>Redirects</label></div>
+    <div class="stat"><span id="stat-phishing">0</span><label>Phishing</label></div>
+    <div class="stat"><span id="stat-clickfix">0</span><label>Scams</label></div>
+    <div class="stat"><span id="stat-downloads">0</span><label>Downloads</label></div>
+  </section>
+  <div class="incognito-nudge" id="incognito-nudge" hidden>
+    &#128373; Not protecting private windows — enable Surf Shield in private/incognito mode (that's where risky links get opened).
+  </div>
+  <div class="stats-meta">
+    <span id="stats-since"></span>
+    <button id="reset-stats" class="link">Reset</button>
+  </div>
+
+  <section class="site">
+    <div class="site-row">
+      <div class="site-name" id="site-host">&mdash;</div>
+      <div class="site-actions">
+        <button id="toggle-site" disabled title="Turn Surf Shield off on this site">Loading&hellip;</button>
+        <button id="block-site" class="block" disabled title="Never load this site again">Block</button>
+      </div>
+    </div>
+    <div class="hint">Trust = turn protection off here until you remove it &middot; Block = never load this site</div>
+  </section>
+
+  <section class="report">
+    <button id="report-scam" class="report-primary" disabled hidden title="Send a one-click report — no account needed">&#128681; Report this site as scam</button>
+
+    <div class="report-form" id="report-form" hidden>
+      <div class="report-label">Why does this look like a scam?</div>
+      <div class="report-reasons">
+        <button type="button" class="chip" data-reason="phishing">Phishing / fake login</button>
+        <button type="button" class="chip" data-reason="fake-support">Fake support popup</button>
+        <button type="button" class="chip" data-reason="malicious-ad">Malicious ad / redirect</button>
+        <button type="button" class="chip" data-reason="suspicious-download">Suspicious download</button>
+        <button type="button" class="chip" data-reason="other">Other</button>
+      </div>
+      <textarea id="report-notes" placeholder="Optional context (max 500 chars)" maxlength="500"></textarea>
+      <div class="report-actions">
+        <button id="report-cancel" class="secondary">Cancel</button>
+        <button id="report-submit" disabled>Send report</button>
+      </div>
+      <div class="report-status" id="report-status" hidden></div>
+    </div>
+
+    <button id="vt-check" class="secondary" disabled title="Opens virustotal.com — see what 90+ scanners say about this domain">&#128269; Check on VirusTotal</button>
+  </section>
+
+  <section class="allowlist">
+    <h2>Trusted sites</h2>
+    <ul id="allowlist"></ul>
+  </section>
+
+  <section class="allowlist">
+    <h2>Blocked sites (yours only)</h2>
+    <ul id="blocklist"></ul>
+  </section>
+
+  <script src="popup.js"></script>
+</body>
+</html>

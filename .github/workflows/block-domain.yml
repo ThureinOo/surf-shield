@@ -1,0 +1,56 @@
+name: Block domain(s)
+
+# Manual trigger only — runnable solely by users with write access (you).
+# Works from the GitHub mobile app: Actions → Block domain(s) → Run workflow.
+on:
+  workflow_dispatch:
+    inputs:
+      domains:
+        description: "Domains or URLs to block (space or comma separated)"
+        required: true
+      type:
+        description: "List to add them to"
+        type: choice
+        default: ads
+        options: [ads, phishing]
+
+permissions:
+  contents: write
+
+jobs:
+  block:
+    runs-on: ubuntu-latest
+    # Gates the actual push to remote/blocklist.json behind a required
+    # reviewer. Configure once in GitHub → Settings → Environments → New
+    # environment "blocklist-approval" → add yourself under "Required
+    # reviewers". A compromised token then can't silently ship domains to
+    # every user's browser without a second approval.
+    environment: blocklist-approval
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+
+      - name: Add to blocklist
+        env:
+          DOMAINS: ${{ inputs.domains }}
+          TYPE: ${{ inputs.type }}
+        run: |
+          FLAG=""
+          if [ "$TYPE" = "phishing" ]; then FLAG="--phishing"; fi
+          # shellcheck disable=SC2086
+          node scripts/block.mjs $FLAG $(printf '%s' "$DOMAINS" | tr ',' ' ')
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add remote/blocklist.json
+          if git diff --cached --quiet; then
+            echo "No changes"
+          else
+            git commit -m "blocklist: manual add via workflow"
+            git push
+          fi
