@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "Surf Shield",
-  "version": "0.2.0",
+  "version": "1.0.0",
   "description": "Blocks ads, malicious popups, click-hijack redirects, and phishing sites.",
   "permissions": [
     "declarativeNetRequest",
