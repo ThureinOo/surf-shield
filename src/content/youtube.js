@@ -13,6 +13,9 @@
   "use strict";
   if (window.__ssYouTubeHooked) return;
   window.__ssYouTubeHooked = true;
+  // Debug: remove after mid-roll behavior is confirmed. Filter in DevTools
+  // console with the string [SS-YT] to see only Surf Shield events.
+  console.log("[SS-YT] activated on", location.href);
 
   // ---- 1. CSS-based ad hiding ----
   // Injected at document_start so the ads never flash on first paint.
@@ -73,35 +76,126 @@
     "button.ytp-ad-skip-button"
   ];
 
+  function isAdShowing() {
+    const p = document.querySelector(".html5-video-player");
+    return !!p && (
+      p.classList.contains("ad-showing") ||
+      p.classList.contains("ad-interrupting")
+    );
+  }
+
   function tryFastForwardAd() {
     const video = document.querySelector("video.html5-main-video");
-    if (video && Number.isFinite(video.duration) && video.duration > 0) {
-      try { video.currentTime = video.duration; } catch {}
-      // Some ads are muted-eligible; keep it that way while we skip.
-      try { video.muted = true; } catch {}
+    if (!video) return;
+
+    try { video.muted = true; } catch {}
+
+    const d = video.duration;
+    if (Number.isFinite(d) && d > 0) {
+      if (!video.__ssSeekLogged) {
+        console.log(`[SS-YT] seek: duration=${d.toFixed(1)}s -> seeking to end`);
+        video.__ssSeekLogged = true;
+      }
+      try { video.currentTime = d; } catch {}
+      // Nudge YT's state machine — some ad flows freeze at the seek and
+      // wait on tracker responses. Firing `ended` unblocks the transition.
+      if (!video.__ssEndedFired) {
+        video.__ssEndedFired = true;
+        try { video.dispatchEvent(new Event("ended")); } catch {}
+      }
+    } else {
+      // Mid-roll ads: `.ad-showing` fires BEFORE the ad video's metadata
+      // loads, so `duration` is NaN at this instant and the seek is a
+      // no-op. Retry on metadata events. The `isAdShowing` guard is
+      // critical — without it, `timeupdate` on the content video after
+      // the ad ends would seek the user's own video to its end.
+      if (!video.__ssAdRetry) {
+        video.__ssAdRetry = true;
+        console.log(`[SS-YT] seek deferred: duration=${d} - waiting for metadata`);
+        const retry = () => {
+          if (!isAdShowing()) return;
+          const dur = video.duration;
+          if (Number.isFinite(dur) && dur > 0) {
+            if (!video.__ssRetryLogged) {
+              console.log(`[SS-YT] metadata ready: duration=${dur.toFixed(1)}s -> seeking to end`);
+              video.__ssRetryLogged = true;
+            }
+            try { video.currentTime = dur; } catch {}
+          }
+        };
+        video.addEventListener("durationchange", retry);
+        video.addEventListener("loadedmetadata", retry);
+        video.addEventListener("timeupdate", retry);
+      }
+      // Fallback: if the seek is impossible (e.g. Infinity for a
+      // live-style ad), compress it. Restored in watchPlayer.
+      if (!video.__ssRateBoosted) {
+        try {
+          video.playbackRate = 16;
+          video.__ssRateBoosted = true;
+          console.log("[SS-YT] rate boost: -> 16x (fallback)");
+        } catch {}
+      }
     }
+
     for (const sel of SKIP_SELECTORS) {
       const btn = document.querySelector(sel);
       if (btn && !btn.disabled) {
+        if (!video.__ssSkipLogged) {
+          console.log(`[SS-YT] skip button clicked: ${sel}`);
+          video.__ssSkipLogged = true;
+        }
         try { btn.click(); return; } catch {}
       }
     }
   }
 
   function watchPlayer(player) {
+    if (player.__ssWatched) return; // survive SPA nav re-attach attempts
+    player.__ssWatched = true;
+
+    let lastAdState = null;
     const check = () => {
-      if (
+      const isAd =
         player.classList.contains("ad-showing") ||
-        player.classList.contains("ad-interrupting")
-      ) {
-        tryFastForwardAd();
+        player.classList.contains("ad-interrupting");
+      if (isAd !== lastAdState) {
+        // Skip the null->false initial transition (no ad at page load).
+        if (lastAdState !== null || isAd) {
+          console.log(`[SS-YT] ad state: ${isAd ? "showing" : "ended"} @ ${new Date().toISOString().slice(11, 19)}`);
+        }
+        lastAdState = isAd;
+        if (!isAd) {
+          const video = document.querySelector("video.html5-main-video");
+          if (video) {
+            if (video.__ssRateBoosted) {
+              try { video.playbackRate = 1; } catch {}
+              video.__ssRateBoosted = false;
+              console.log("[SS-YT] rate restored: 1x");
+            }
+            // Reset per-ad log guards (NOT __ssAdRetry — that's a
+            // per-video-element listener flag, kept for the video's life).
+            video.__ssSeekLogged = false;
+            video.__ssRetryLogged = false;
+            video.__ssSkipLogged = false;
+            video.__ssEndedFired = false;
+          }
+        }
       }
+      if (isAd) tryFastForwardAd();
     };
     check();
     new MutationObserver(check).observe(player, {
       attributes: true,
       attributeFilter: ["class"]
     });
+    // Belt-and-braces: catches back-to-back ads (class stays `ad-showing`
+    // across them so the observer doesn't refire) and the skip button
+    // YouTube renders seconds after ad start.
+    const id = setInterval(() => {
+      if (!player.isConnected) { clearInterval(id); return; }
+      check();
+    }, 500);
   }
 
   // The player element is added asynchronously. Poll briefly, then attach

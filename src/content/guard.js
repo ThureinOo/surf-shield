@@ -1,6 +1,11 @@
 // Isolated-world guard: overlay killer, noopener enforcement, bridge to background.
 (() => {
   "use strict";
+  // YouTube is a first-party trusted site — no popunder ads, no scam
+  // interstitials, no third-party overlays. Running the MutationObserver-
+  // driven scoring on YT's constantly-changing DOM was adding seconds
+  // of CPU per page load. YT ad handling lives in youtube-bundle.js.
+  if (/(?:^|\.)youtube(?:-nocookie)?\.com$/.test(location.hostname)) return;
   const api = typeof browser !== "undefined" ? browser : chrome;
   let enabled = true;
   let overlaysOn = true;

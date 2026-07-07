@@ -4,6 +4,11 @@
   "use strict";
   if (window.__surfShieldHooked) return;
   window.__surfShieldHooked = true;
+  // YouTube is a first-party trusted site — no popunder ads, no synthetic
+  // click-hijack redirects. The iframe.contentWindow / click / form-submit
+  // wrappers were fighting YT's own SPA and iframe machinery, adding several
+  // seconds of load time. Skip on YT; YT ad handling lives in youtube-bundle.js.
+  if (/(?:^|\.)youtube(?:-nocookie)?\.com$/.test(location.hostname)) return;
 
   const GESTURE_WINDOW_MS = 1000;
   const CROSS_SITE_OPEN_BUDGET = 2;
@@ -391,4 +396,64 @@
         notificationsBlocked ? Promise.resolve("denied") : nativeRequest(...args);
     } catch {}
   }
+
+  // Same-tab click-hijack guard. The popup guards above cover `window.open`,
+  // anchor clicks, and form submits — but a page-level handler like
+  // `document.addEventListener('click', () => location.href = evil)` bypasses
+  // all of them. This block wraps every navigation API that can steer the
+  // current tab (`location.assign`, `location.replace`, `location.href =`)
+  // and applies the same "recent-click + cross-origin + not-on-a-link"
+  // heuristic already used for popups. Blocks cost the site's fake budget,
+  // then falls through so real user-initiated cross-origin navigation still
+  // works.
+  function shouldBlockNav(url) {
+    if (!guardsOn) return false;
+    const target = hostOf(url);
+    if (!target) return false;
+    const base = (h) => (h ? h.split(".").slice(-2).join(".") : null);
+    const targetBase = base(target);
+    const pageBase = base(hostOf(location.href));
+    if (!targetBase || targetBase === pageBase) return false; // same-origin
+    if (isOAuthPopup(target)) return false;
+    const sinceClick = Date.now() - lastTrustedClick;
+    if (sinceClick < 0 || sinceClick > GESTURE_WINDOW_MS) return false; // no gesture
+    if (lastClickedHref) {
+      const clickedBase = base(hostOf(lastClickedHref));
+      if (clickedBase === targetBase) return false; // legit link click
+    }
+    if (lastClickWasSafe && lastClickedHref) return false; // clicked a link somewhere else
+    console.warn("[surf-shield] blocked click-hijack nav ->", url);
+    report();
+    return true;
+  }
+
+  const LocationProto = Location.prototype;
+  try {
+    const origAssign = LocationProto.assign;
+    LocationProto.assign = function (url) {
+      if (shouldBlockNav(url)) return;
+      return origAssign.call(this, url);
+    };
+  } catch {}
+  try {
+    const origReplace = LocationProto.replace;
+    LocationProto.replace = function (url) {
+      if (shouldBlockNav(url)) return;
+      return origReplace.call(this, url);
+    };
+  } catch {}
+  try {
+    const hrefDesc = Object.getOwnPropertyDescriptor(LocationProto, "href");
+    if (hrefDesc && hrefDesc.set) {
+      const origSet = hrefDesc.set;
+      Object.defineProperty(LocationProto, "href", {
+        configurable: true,
+        get: hrefDesc.get,
+        set(url) {
+          if (shouldBlockNav(url)) return;
+          return origSet.call(this, url);
+        },
+      });
+    }
+  } catch {}
 })();

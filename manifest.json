@@ -8,7 +8,8 @@
     "webNavigation",
     "storage",
     "downloads",
-    "alarms"
+    "alarms",
+    "scripting"
   ],
   "host_permissions": ["<all_urls>"],
   "background": {

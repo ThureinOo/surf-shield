@@ -19,5 +19,10 @@
   { "id": 18, "priority": 1, "action": { "type": "block" }, "condition": { "regexFilter": "[?&]utm_medium=pop(?:under|up)", "resourceTypes": ["main_frame", "sub_frame"] } },
   { "id": 19, "priority": 1, "action": { "type": "block" }, "condition": { "regexFilter": "^https?://[^/]+/[^?]*\\?(?:[^#]*&)?zoneid=\\d+", "resourceTypes": ["main_frame"] } },
   { "id": 20, "priority": 1, "action": { "type": "block" }, "condition": { "regexFilter": "[?&]ad_campaign_id=\\d+", "resourceTypes": ["main_frame", "sub_frame"] } },
-  { "id": 21, "priority": 1, "action": { "type": "block" }, "condition": { "regexFilter": "[?&]cost=0\\.\\d+&currency=", "resourceTypes": ["main_frame", "sub_frame"] } }
+  { "id": 21, "priority": 1, "action": { "type": "block" }, "condition": { "regexFilter": "[?&]cost=0\\.\\d+&currency=", "resourceTypes": ["main_frame", "sub_frame"] } },
+
+  { "id": 100, "priority": 100, "action": { "type": "allow" }, "condition": { "requestDomains": ["doubleclick.net", "googlesyndication.com", "googleadservices.com"], "initiatorDomains": ["youtube.com", "youtube-nocookie.com"] } },
+  { "id": 101, "priority": 100, "action": { "type": "allow" }, "condition": { "urlFilter": "/pagead/1p-user-list", "initiatorDomains": ["youtube.com", "youtube-nocookie.com"], "resourceTypes": ["script", "image", "xmlhttprequest", "ping"] } },
+
+  { "id": 102, "priority": 100, "action": { "type": "allow" }, "condition": { "requestDomains": ["doubleclick.net", "googlesyndication.com", "googleadservices.com"], "initiatorDomains": ["doubleclick.net", "googlesyndication.com", "googleadservices.com"] } }
 ]

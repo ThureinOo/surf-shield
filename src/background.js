@@ -938,3 +938,32 @@ api.declarativeNetRequest
   .getEnabledRulesets()
   .then((ids) => console.log("[surf-shield] enabled rulesets:", ids))
   .catch((e) => console.error("[surf-shield] ruleset check failed:", e));
+
+// Inject the YT ad-prevention bundle via chrome.scripting on webNavigation
+// rather than via a manifest content_script. Fires marginally earlier —
+// before YT's inline `<script>` that assigns `ytInitialPlayerResponse` —
+// so the getters our bundle installs are already in place. Matches the
+// architecture used by Adblock for YouTube and uBlock Origin's YT rules.
+if (api.scripting && api.scripting.executeScript) {
+  api.webNavigation.onCommitted.addListener(
+    async ({ tabId, frameId }) => {
+      if (frameId !== 0) return;
+      try {
+        await api.scripting.executeScript({
+          target: { tabId, frameIds: [0] },
+          world: "MAIN",
+          injectImmediately: true,
+          files: ["src/content/youtube-bundle.js"],
+        });
+      } catch {
+        // Tab closed, chrome:// URL, or the tab is unloaded — all benign.
+      }
+    },
+    {
+      url: [
+        { hostSuffix: "youtube.com" },
+        { hostSuffix: "youtube-nocookie.com" },
+      ],
+    }
+  );
+}

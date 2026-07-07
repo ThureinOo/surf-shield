@@ -2,6 +2,9 @@
 // bundled filter lists (network blocking leaves empty frames behind).
 (() => {
   "use strict";
+  // YouTube handled entirely by src/content/youtube-bundle.js — running
+  // 13k generic selectors against YT's DOM was adding seconds to page load.
+  if (/(?:^|\.)youtube(?:-nocookie)?\.com$/.test(location.hostname)) return;
   const api = typeof browser !== "undefined" ? browser : chrome;
 
   // Orphaned-script safety: sendMessage throws after an extension reload.
