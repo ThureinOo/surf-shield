@@ -29,6 +29,17 @@ function renderStats(stats) {
   }
 }
 
+// Clicking a stat card opens the activity page filtered to that category,
+// so the user can see WHICH sites triggered each counter and when.
+for (const el of document.querySelectorAll(".stat[data-type]")) {
+  el.addEventListener("click", () => {
+    const type = el.getAttribute("data-type");
+    api.tabs.create({
+      url: api.runtime.getURL(`src/ui/activity/activity.html?type=${encodeURIComponent(type)}`)
+    });
+  });
+}
+
 function renderDomainList(elementId, entries, removeType) {
   const ul = document.getElementById(elementId);
   ul.innerHTML = "";

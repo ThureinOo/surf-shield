@@ -56,8 +56,40 @@
     "ytmusic-companion-ad-renderer"
   ];
 
+  // Grid-cell / row-item wrappers whose inner ad content is already
+  // covered by HIDE_SELECTORS above. Hiding just the inner element leaves
+  // an empty grid slot (visible as a missing first card on the homepage
+  // row). Using `:has()` collapses the entire wrapper so the surrounding
+  // grid reflows to fill the space. `:has()` is supported in Chrome 105+,
+  // Safari 15.4+, Firefox 121+ — universal on any browser that runs MV3.
+  const AD_WRAPPER_SELECTORS = [
+    // Home / channel / feed grid cells
+    "ytd-rich-item-renderer:has(ytd-ad-slot-renderer)",
+    "ytd-rich-item-renderer:has(ytd-in-feed-ad-layout-renderer)",
+    "ytd-rich-item-renderer:has(ytd-display-ad-renderer)",
+    "ytd-rich-item-renderer:has(ytd-promoted-video-renderer)",
+    "ytd-rich-item-renderer:has(ytd-promoted-sparkles-web-renderer)",
+    "ytd-rich-item-renderer:has(ytd-brand-video-shelf-renderer)",
+    "ytd-rich-item-renderer:has(ytd-brand-video-singleton-renderer)",
+    // Section rows (banners, mealbars, promo shelves)
+    "ytd-rich-section-renderer:has(ytd-statement-banner-renderer)",
+    "ytd-rich-section-renderer:has(ytd-mealbar-promo-renderer)",
+    "ytd-rich-section-renderer:has(ytd-banner-promo-renderer)",
+    "ytd-rich-section-renderer:has(ytd-brand-video-shelf-renderer)",
+    "ytd-rich-section-renderer:has(ytd-brand-video-singleton-renderer)",
+    // Watch-page sidebar
+    "ytd-item-section-renderer:has(ytd-compact-promoted-item-renderer)",
+    "ytd-item-section-renderer:has(ytd-ad-slot-renderer)",
+    // Search results
+    "ytd-item-section-renderer:has(ytd-search-pyv-renderer)",
+    "ytd-item-section-renderer:has(ytd-promoted-sparkles-text-search-renderer)",
+    // Shorts shelf slots
+    "ytd-reel-video-renderer:has(ytd-ad-slot-renderer)",
+  ];
+
   function injectCss() {
-    const css = HIDE_SELECTORS.join(",\n") + " { display: none !important; }";
+    const all = HIDE_SELECTORS.concat(AD_WRAPPER_SELECTORS);
+    const css = all.join(",\n") + " { display: none !important; }";
     const s = document.createElement("style");
     s.textContent = css;
     (document.head || document.documentElement).appendChild(s);

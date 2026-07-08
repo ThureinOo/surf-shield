@@ -205,16 +205,27 @@
     if (style.position !== "fixed" && style.position !== "absolute") return false;
     if (style.pointerEvents === "none") return false;
 
+    // Broadened: some scam overlays use lower z-index (100-999). Combined
+    // with the invisibility check below, false positives stay rare because
+    // legit low-z overlays are visible + have content.
     const z = parseInt(style.zIndex, 10);
-    if (isNaN(z) || z < 1000) return false;
+    if (isNaN(z) || z < 100) return false;
 
+    // Area-based coverage: an invisible <a href="evil"> covering 40% of the
+    // viewport still hijacks any click landing in that area. Tall-narrow or
+    // wide-short overlays now trigger too (old width-AND-height check missed
+    // them).
     const rect = el.getBoundingClientRect();
-    const coversViewport =
-      rect.width >= innerWidth * 0.9 && rect.height >= innerHeight * 0.9;
-    if (!coversViewport) return false;
+    const area = rect.width * rect.height;
+    const viewportArea = innerWidth * innerHeight;
+    if (area < viewportArea * 0.4) return false;
 
+    // Require some invisibility signal — otherwise visible modals with real
+    // content would false-positive. opacity < 0.3 catches near-transparent
+    // overlays; the transparent-bg-no-text branch catches spacer-style traps.
+    const opacity = parseFloat(style.opacity);
     const invisible =
-      parseFloat(style.opacity) < 0.05 ||
+      opacity < 0.3 ||
       (style.backgroundColor === "rgba(0, 0, 0, 0)" &&
         !el.textContent.trim() &&
         el.children.length === 0);

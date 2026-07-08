@@ -31,12 +31,19 @@ header h1 { font-size: 15px; margin: 0; flex: 1; }
 }
 .stat {
   background: #0f172a;
+  border: none;
   border-radius: 8px;
   padding: 8px 4px;
   text-align: center;
+  cursor: pointer;
+  color: inherit;
+  font-family: inherit;
+  transition: background 0.15s;
 }
+.stat:hover { background: #172136; }
+.stat:focus-visible { outline: 2px solid #7ea1ff; outline-offset: 1px; }
 .stat span { display: block; font-size: 17px; font-weight: 700; color: #2ecc71; }
-.stat label { font-size: 10px; color: #95a5a6; }
+.stat label { display: block; font-size: 10px; color: #95a5a6; cursor: pointer; }
 
 .incognito-nudge {
   margin: 0 14px 8px;

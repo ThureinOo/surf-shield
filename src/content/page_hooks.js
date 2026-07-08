@@ -42,6 +42,8 @@
   let lastTrustedClick = 0;
   let lastClickWasSafe = false;
   let lastClickedHref = null;
+  let lastClickCoverage = 0;   // 0..1, fraction of viewport the clicked element covers
+  let lastClickOpacity = 1;    // 0..1, effective opacity of the clicked element
   let guardsOn = true;
   let notificationsBlocked = true;
 
@@ -89,6 +91,25 @@
       const href = a ? a.getAttribute("href") : null;
       lastClickedHref =
         href && !/^(#|javascript:)/i.test(href) ? new URL(href, location.href).href : null;
+
+      // Click-trap signals: measure how much of the viewport the clicked
+      // element (or its anchor ancestor) covers, and its effective opacity.
+      // Feeds the nav guard so it can distinguish a legit small button click
+      // from an invisible full-page anchor overlay that the user meant to
+      // click "through" to the real UI.
+      lastClickCoverage = 0;
+      lastClickOpacity = 1;
+      const measured = a || (e.target instanceof Element ? e.target : null);
+      if (measured) {
+        try {
+          const rect = measured.getBoundingClientRect();
+          const viewportArea = Math.max(1, window.innerWidth * window.innerHeight);
+          lastClickCoverage = (rect.width * rect.height) / viewportArea;
+          const style = getComputedStyle(measured);
+          const parsedOpacity = parseFloat(style.opacity);
+          lastClickOpacity = Number.isFinite(parsedOpacity) ? parsedOpacity : 1;
+        } catch {}
+      }
     },
     true
   );
@@ -400,12 +421,17 @@
   // Same-tab click-hijack guard. The popup guards above cover `window.open`,
   // anchor clicks, and form submits — but a page-level handler like
   // `document.addEventListener('click', () => location.href = evil)` bypasses
-  // all of them. This block wraps every navigation API that can steer the
-  // current tab (`location.assign`, `location.replace`, `location.href =`)
-  // and applies the same "recent-click + cross-origin + not-on-a-link"
-  // heuristic already used for popups. Blocks cost the site's fake budget,
-  // then falls through so real user-initiated cross-origin navigation still
-  // works.
+  // all of them. This wraps every same-tab navigation API and blocks the
+  // hijack pattern while trusting genuine user interaction.
+  //
+  // We trust any cross-origin navigation that fired within GESTURE_WINDOW_MS
+  // of a click on a real interactive element (button, link, input, …) —
+  // legit sites navigate that way constantly ("Continue on <partner>",
+  // affiliate outbound, non-popup "Sign in with Google", "Read on Medium").
+  // Only navigations from clicks on non-interactive targets (body, plain
+  // <div>, invisible overlays) are blocked — that's the click-hijack pattern
+  // where a document-level listener catches every click and redirects.
+  // Known-bad redirect targets should be caught at the DNR block/threat lists.
   function shouldBlockNav(url) {
     if (!guardsOn) return false;
     const target = hostOf(url);
@@ -421,8 +447,17 @@
       const clickedBase = base(hostOf(lastClickedHref));
       if (clickedBase === targetBase) return false; // legit link click
     }
-    if (lastClickWasSafe && lastClickedHref) return false; // clicked a link somewhere else
-    console.warn("[surf-shield] blocked click-hijack nav ->", url);
+    // Trust real UI clicks — but only if the clicked element wasn't
+    // abnormally large (invisible-overlay pattern where an <a href="evil">
+    // covers a big region of the viewport) or nearly-invisible (semi-
+    // transparent trap layered on top of real UI). A legit "Continue on X"
+    // button is small (~5-20% viewport) and opaque; a click-trap covering
+    // 40%+ of the viewport or opacity <0.3 is almost always a hijack.
+    const looksLikeClickTrap =
+      lastClickCoverage >= 0.4 || lastClickOpacity < 0.3;
+    if (lastClickWasSafe && !looksLikeClickTrap) return false;
+    console.warn("[surf-shield] blocked click-hijack nav ->", url,
+      looksLikeClickTrap ? `(click-trap: coverage=${lastClickCoverage.toFixed(2)} opacity=${lastClickOpacity.toFixed(2)})` : "");
     report();
     return true;
   }

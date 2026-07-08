@@ -84,9 +84,38 @@ function resetTabBadge(tabId) {
 
 api.action.setBadgeBackgroundColor({ color: "#c0392b" });
 
-async function bumpStat(key, tabId) {
+// Ring buffer of recent block events, keyed on {type, host, ts}. The activity
+// page reads and groups these so the user can see which hostnames triggered
+// each counter (2 overlays → which sites?). Rolling window, self-managed.
+const STATS_EVENTS_MAX = 300;
+
+function safeHostOf(u) {
+  try { return new URL(u).hostname; } catch { return null; }
+}
+
+async function bumpStat(key, tabId, hostOrUrl) {
   const { stats } = await getState();
   stats[key] = (stats[key] || 0) + 1;
+
+  // Prefer an explicit host/URL passed by the caller (that's the exact host
+  // of the page at the moment of the block). Fall back to tabLastHost only
+  // if nothing better is available. tabLastHost is only refreshed on
+  // webNavigation.onCommitted, so for SPA nav events (YouTube, GMail, etc.)
+  // it can lag behind the real URL by hundreds of ms.
+  let host = null;
+  if (hostOrUrl) {
+    host = hostOrUrl.includes("://") ? safeHostOf(hostOrUrl) : hostOrUrl;
+  }
+  if (!host && tabId != null) host = tabLastHost.get(tabId) || null;
+
+  if (host) {
+    if (!Array.isArray(stats.events)) stats.events = [];
+    stats.events.push({ type: key, host, ts: Date.now() });
+    if (stats.events.length > STATS_EVENTS_MAX) {
+      stats.events = stats.events.slice(-STATS_EVENTS_MAX);
+    }
+  }
+
   await api.storage.local.set({ stats });
   bumpTabBadge(tabId);
 }
@@ -196,6 +225,20 @@ function phishingScore(urlStr) {
   for (const brand of BRANDS) {
     const official = OFFICIAL_DOMAINS[brand] || [];
     if (official.includes(base)) break;
+    // Google has ~150 regional ccTLDs (google.co.uk, google.de, google.co.jp,
+    // …), a dozen infrastructure domains (googleusercontent.com used for
+    // Drive file content, googleapis.com, gstatic.com, googletagmanager.com,
+    // google-analytics.com, googleadservices.com, googlesyndication.com),
+    // AND owns three exclusive gTLDs — .google, .goog, .gmail — under which
+    // every hostname is Google's (projectzero.google, store.google, ...).
+    // Listing every one is unmaintainable — pattern-match instead.
+    if (brand === "google") {
+      // Any google.<tld> where the TLD isn't itself in the suspicious set
+      // (google.tk is not a real Google property; google.co.uk is).
+      if (baseLabel === "google" && !SUSPICIOUS_TLDS.has(base.split(".").pop())) break;
+      if (/\.(?:google|goog|gmail)$/.test(host)) break; // Google-exclusive gTLDs
+      if (/^(?:googleusercontent|googleapis|gstatic|googletagmanager|google-analytics|googleadservices|googlesyndication)\.com$/.test(base)) break;
+    }
     if (host.includes(brand) && !official.some((d) => host === d || host.endsWith("." + d))) {
       score += 3;
       reasons.push(`Impersonates "${brand}" (official: ${official[0]})`);
@@ -212,6 +255,51 @@ function phishingScore(urlStr) {
   return { score, reasons };
 }
 
+// ---- Auto-trust: sites you've settled on before ----
+// If a top-frame navigation completed (page finished loading, no warning
+// intervened), we implicitly trust the destination eTLD+1 for 30 days.
+// Future visits skip our heuristic warnings (chain score, phishing score)
+// so you never have to click "Proceed for 1 hour" on a legit site twice.
+//
+// Hard signals — threat-feed matches (URLhaus, PhishingArmy), user blocklist,
+// AD_URL_PATTERNS — always fire regardless of "seen", because those catch
+// actual compromise, not heuristic false positives.
+const SEEN_TTL_MS = 30 * 86400 * 1000;
+let seenHosts = null; // { base: timestamp }, lazy-loaded
+let seenDirty = false;
+
+async function loadSeenHosts() {
+  if (seenHosts !== null) return seenHosts;
+  const { seenHosts: stored } = await api.storage.local.get({ seenHosts: {} });
+  const now = Date.now();
+  const pruned = {};
+  for (const b in stored) {
+    if (now - stored[b] < SEEN_TTL_MS) pruned[b] = stored[b];
+  }
+  seenHosts = pruned;
+  return seenHosts;
+}
+
+async function isSeenBefore(base) {
+  if (!base) return false;
+  const seen = await loadSeenHosts();
+  const ts = seen[base];
+  return !!ts && Date.now() - ts < SEEN_TTL_MS;
+}
+
+function markSeen(base) {
+  if (!base || !seenHosts) return;
+  seenHosts[base] = Date.now();
+  seenDirty = true;
+}
+
+// Persist debounced — onCompleted fires often.
+setInterval(async () => {
+  if (!seenDirty || !seenHosts) return;
+  seenDirty = false;
+  try { await api.storage.local.set({ seenHosts }); } catch {}
+}, 30000);
+
 // ---- Redirect chain breaker ----
 // tabId -> { hops: [{host, time}], lastCommit }
 const tabChains = new Map();
@@ -221,6 +309,72 @@ const tabChains = new Map();
 const tabLastHost = new Map();
 const CHAIN_WINDOW_MS = 3000;
 const CHAIN_MAX_HOPS = 3;
+// Chain-reputation scoring: multi-signal replacement for the old "3+ hops = block"
+// hard rule. Lets clean 3-hop OAuth flows through while catching malicious 2-hop
+// chains that carry other bad signals (DGA hosts, suspicious TLDs, sub-second
+// automated timing, ad-URL-pattern touch, popup origin). Threshold tuned so a
+// clean 3-hop chain scores 3 (allow), but any chain with 4 hops OR with 3 hops
+// plus one reputation signal scores >= 5 (block).
+const CHAIN_SCORE_THRESHOLD = 5;
+
+// Ranks the badness of a committed redirect chain. Returns { score, reasons }.
+// Reasons array is what the warning page shows the user so they understand
+// *why* the chain looked malicious.
+function chainScore(chain, currentUrl) {
+  const reasons = [];
+  let score = 0;
+  const hops = chain.hops || [];
+  if (hops.length < 2) return { score, reasons };
+
+  // 4+ hops through unrelated domains is a hard block on its own — no
+  // legitimate flow needs that many.
+  if (hops.length >= 4) {
+    return { score: 99, reasons: [`Redirect chain through ${hops.length} unrelated domains`] };
+  }
+  if (hops.length === 3) { score += 3; reasons.push("3-hop redirect chain"); }
+  else if (hops.length === 2) { score += 1; reasons.push("2-hop redirect chain"); }
+
+  // Timing: sub-second per-hop average = automated JS redirects, not human
+  // clicks through an OAuth flow.
+  const span = hops[hops.length - 1].time - hops[0].time;
+  const avg = span / Math.max(1, hops.length - 1);
+  if (avg < 300) { score += 2; reasons.push("Sub-second automated redirects"); }
+  else if (avg < 800) { score += 1; }
+
+  // Per-hop reputation signals — reuse the same signals the phishing scorer uses.
+  let sus = 0, dga = 0, rawIp = 0, puny = 0;
+  for (const hop of hops) {
+    const host = hop.host;
+    const tld = host.split(".").pop();
+    if (SUSPICIOUS_TLDS.has(tld)) sus++;
+    if (/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) rawIp++;
+    if (host.startsWith("xn--") || host.includes(".xn--")) puny++;
+    const isInfra = INFRA_DOMAINS.some((d) => host === d || host.endsWith("." + d));
+    const baseLabel = etldPlusOne(host).split(".")[0];
+    if (!isInfra && looksGenerated(baseLabel)) dga++;
+  }
+  if (sus)   { score += sus;      reasons.push(`${sus} hop(s) on high-abuse TLDs`); }
+  if (dga)   { score += dga * 2;  reasons.push(`${dga} machine-generated domain(s) in chain`); }
+  if (rawIp) { score += rawIp * 2; reasons.push(`${rawIp} raw-IP hop(s)`); }
+  if (puny)  { score += puny;     reasons.push(`${puny} punycode hop(s)`); }
+
+  // Any hop URL (or the final destination) matches a known ad-redirect URL pattern.
+  const hopUrls = hops.map((h) => h.url).filter(Boolean);
+  const matchesAdPattern = (u) => u && AD_URL_PATTERNS.some((re) => re.test(u));
+  if (hopUrls.some(matchesAdPattern) || matchesAdPattern(currentUrl)) {
+    score += 3;
+    reasons.push("Chain routed through a known ad-URL pattern");
+  }
+
+  // Chain landed in a tab that was opened from a popup — typical of
+  // forced-download / popunder-then-redirect flows.
+  if (chain.fromPopup) {
+    score += 2;
+    reasons.push("Chain started in a popup tab");
+  }
+
+  return { score, reasons };
+}
 
 function warningUrl(blockedUrl, reason, mode) {
   return api.runtime.getURL(
@@ -318,7 +472,7 @@ api.webNavigation.onBeforeNavigate.addListener(async (details) => {
   // fingerprints. Catch them here too in case a ruleset failed to load.
   if (settings.redirects && AD_URL_PATTERNS.some((re) => re.test(details.url))) {
     noteAdActivity();
-    await bumpStat("redirects", details.tabId);
+    await bumpStat("redirects", details.tabId, host);
     api.tabs.update(details.tabId, { url: warningUrl(details.url, "Popunder / ad redirect URL") });
     return;
   }
@@ -332,7 +486,7 @@ api.webNavigation.onBeforeNavigate.addListener(async (details) => {
   });
   if (threatMalware.some((d) => host === d || host.endsWith("." + d))) {
     noteAdActivity();
-    await bumpStat("phishing", details.tabId);
+    await bumpStat("phishing", details.tabId, host);
     api.tabs.update(details.tabId, {
       url: warningUrl(details.url, "Known malware domain (public threat-intelligence feeds)", "list")
     });
@@ -340,7 +494,7 @@ api.webNavigation.onBeforeNavigate.addListener(async (details) => {
   }
   if (remotePhishing.some((d) => host === d || host.endsWith("." + d))) {
     noteAdActivity();
-    await bumpStat("phishing", details.tabId);
+    await bumpStat("phishing", details.tabId, host);
     api.tabs.update(details.tabId, {
       url: warningUrl(details.url, "Domain is on the curated phishing blocklist", "list")
     });
@@ -348,7 +502,7 @@ api.webNavigation.onBeforeNavigate.addListener(async (details) => {
   }
   if (threatPhishing.some((d) => host === d || host.endsWith("." + d))) {
     noteAdActivity();
-    await bumpStat("phishing", details.tabId);
+    await bumpStat("phishing", details.tabId, host);
     api.tabs.update(details.tabId, {
       url: warningUrl(details.url, "Known phishing domain (public threat-intelligence feeds)", "list")
     });
@@ -367,8 +521,8 @@ api.webNavigation.onBeforeNavigate.addListener(async (details) => {
       reasons.push("Reached right after a blocked ad/redirect");
     }
   }
-  if (total >= 3) {
-    await bumpStat("phishing", details.tabId);
+  if (total >= 3 && !(await isSeenBefore(etldPlusOne(host)))) {
+    await bumpStat("phishing", details.tabId, host);
     api.tabs.update(details.tabId, { url: warningUrl(details.url, reasons.join(" · ")) });
   }
 });
@@ -403,35 +557,60 @@ api.webNavigation.onCommitted.addListener(async (details) => {
     details.transitionQualifiers.includes("server_redirect");
 
   let chain = tabChains.get(details.tabId);
+  const prevFromPopup = chain?.fromPopup ?? false;
   if (!chain || now - chain.lastCommit > CHAIN_WINDOW_MS || !isRedirect) {
-    chain = { hops: [], lastCommit: now };
+    chain = { hops: [], lastCommit: now, fromPopup: prevFromPopup };
   }
   chain.lastCommit = now;
 
   const lastHop = chain.hops[chain.hops.length - 1];
   if (isRedirect && (!lastHop || etldPlusOne(lastHop.host) !== etldPlusOne(host))) {
-    chain.hops.push({ host, time: now });
+    chain.hops.push({ host, url: details.url, time: now });
   }
   tabChains.set(details.tabId, chain);
 
   const { settings } = await getState();
-  if (settings.redirects && chain.hops.length >= CHAIN_MAX_HOPS && !(await isAllowlisted(host))) {
-    tabChains.delete(details.tabId);
-    noteAdActivity();
-    await bumpStat("redirects", details.tabId);
-    api.tabs.update(details.tabId, {
-      url: warningUrl(
-        details.url,
-        `Rapid redirect chain through ${chain.hops.length} unrelated domains`
-      )
-    });
+  if (settings.redirects && chain.hops.length >= 2 && !(await isAllowlisted(host)) && !(await isSeenBefore(etldPlusOne(host)))) {
+    const { score, reasons } = chainScore(chain, details.url);
+    if (score >= CHAIN_SCORE_THRESHOLD) {
+      tabChains.delete(details.tabId);
+      noteAdActivity();
+      await bumpStat("redirects", details.tabId, host);
+      const reasonText = "Suspicious redirect chain — " + reasons.slice(0, 3).join("; ");
+      api.tabs.update(details.tabId, { url: warningUrl(details.url, reasonText) });
+    }
   }
+});
+
+// Auto-trust: once a top-frame nav has *finished loading* without being
+// redirected to our warning page, remember the destination so we don't
+// warn on it again. If we warned during commit, the tab navigated to a
+// warning URL (extension origin) — onCompleted then fires for that URL
+// and the early-return skips the mark. Only genuinely-successful visits
+// end up in the seen set. That's what makes the auto-trust race-free
+// across the two onCommitted handlers.
+api.webNavigation.onCompleted.addListener(async (details) => {
+  if (details.frameId !== 0) return;
+  let host;
+  try {
+    host = new URL(details.url).hostname;
+  } catch {
+    return;
+  }
+  if (!host || details.url.startsWith(api.runtime.getURL(""))) return;
+  await loadSeenHosts();
+  markSeen(etldPlusOne(host));
 });
 
 // New tabs (popunders!) inherit provenance from the tab that opened them.
 api.webNavigation.onCreatedNavigationTarget.addListener((details) => {
   const openerHost = tabLastHost.get(details.sourceTabId);
   if (openerHost) tabLastHost.set(details.tabId, openerHost);
+  // Mark the new tab's chain as popup-originated so chainScore adds the
+  // forced-download / popunder penalty on any subsequent redirect.
+  const chain = tabChains.get(details.tabId) || { hops: [], lastCommit: Date.now() };
+  chain.fromPopup = true;
+  tabChains.set(details.tabId, chain);
 });
 
 api.tabs.onRemoved.addListener((tabId) => {
@@ -516,7 +695,7 @@ async function inspectDownload(item) {
   } catch {
     return; // already finished or gone — nothing to protect
   }
-  await bumpStat("downloads");
+  await bumpStat("downloads", null, sourceHost);
   api.tabs.create({
     url: api.runtime.getURL(
       `src/ui/warning/warning.html?mode=download&dlid=${item.id}` +
@@ -766,15 +945,15 @@ api.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   (async () => {
     switch (msg.type) {
       case "blocked-popup":
-        await bumpStat("popups", sender.tab && sender.tab.id);
+        await bumpStat("popups", sender.tab && sender.tab.id, sender.tab && sender.tab.url);
         sendResponse({ ok: true });
         break;
       case "blocked-overlay":
-        await bumpStat("overlays", sender.tab && sender.tab.id);
+        await bumpStat("overlays", sender.tab && sender.tab.id, sender.tab && sender.tab.url);
         sendResponse({ ok: true });
         break;
       case "blocked-clickfix":
-        await bumpStat("clickfix", sender.tab && sender.tab.id);
+        await bumpStat("clickfix", sender.tab && sender.tab.id, sender.tab && sender.tab.url);
         sendResponse({ ok: true });
         break;
       case "get-state": {
