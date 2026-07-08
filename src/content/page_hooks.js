@@ -171,12 +171,20 @@
     return win;
   };
 
-  // Prevent the page from restoring the native window.open.
+  // Prevent the page from restoring the native window.open. Use a getter/
+  // setter where the setter silently rejects assignments instead of a
+  // writable:false + configurable:false lock, because legit apps do
+  // `window.open = wrappedFn` during init (LinkedIn's Voyager, some
+  // Ember/React bootstraps, testing frameworks). A hard lock throws
+  // in strict mode and cascades the whole app-boot failure. Silent
+  // no-op preserves our wrap AND lets legit init continue. Ad scripts
+  // trying to bypass this way also silently fail — same protection.
   try {
+    const wrappedOpen = window.open;
     Object.defineProperty(window, "open", {
-      value: window.open,
-      writable: false,
-      configurable: false
+      configurable: true,
+      get() { return wrappedOpen; },
+      set() { /* silently reject */ }
     });
   } catch {}
 
