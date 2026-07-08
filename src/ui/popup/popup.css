@@ -23,6 +23,25 @@ header h1 { font-size: 15px; margin: 0; flex: 1; }
 }
 #open-options:hover { color: #fff; }
 
+.freshness {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px 0;
+  font-size: 11px;
+  color: #95a5a6;
+}
+.freshness .dot {
+  width: 8px; height: 8px; border-radius: 50%;
+  background: #444; /* replaced by state class */
+  flex-shrink: 0;
+}
+.freshness.fresh .dot { background: #27ae60; }
+.freshness.stale .dot { background: #f39c12; }
+.freshness.dead .dot { background: #e74c3c; }
+.freshness.fresh { color: #6fbf85; }
+.freshness.stale { color: #d69434; }
+.freshness.dead  { color: #e08476; }
 .stats {
   display: grid;
   grid-template-columns: repeat(3, 1fr);

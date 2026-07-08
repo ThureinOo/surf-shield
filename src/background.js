@@ -825,6 +825,10 @@ async function updateRemoteRules() {
   }
   if (!list || !Array.isArray(list.domains)) return;
 
+  // Fetch parsed successfully — record freshness even when the content
+  // hasn't changed (unchanged content is still a successful check-in).
+  await api.storage.local.set({ lastRemoteFeedTs: Date.now() });
+
   const { remoteVersion } = await api.storage.local.get({ remoteVersion: 0 });
   if (list.version === remoteVersion) return;
 
@@ -887,6 +891,9 @@ async function updateThreatRules() {
     return;
   }
   if (!list || !Array.isArray(list.malware)) return;
+
+  // Successful fetch — record freshness before the content-changed check.
+  await api.storage.local.set({ lastThreatFeedTs: Date.now() });
 
   const { threatVersion } = await api.storage.local.get({ threatVersion: "" });
   if (list.updated === threatVersion) return;

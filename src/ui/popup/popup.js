@@ -29,6 +29,46 @@ function renderStats(stats) {
   }
 }
 
+// Freshness = min(lastRemote, lastThreat). If either feed hasn't checked in
+// recently, the extension is running with stale defenses — we want the user
+// to know before something slips through.
+function fmtAge(ms) {
+  if (ms < 60_000) return "just now";
+  if (ms < 3_600_000) return Math.floor(ms / 60_000) + " min ago";
+  if (ms < 86_400_000) return Math.floor(ms / 3_600_000) + "h ago";
+  return Math.floor(ms / 86_400_000) + "d ago";
+}
+
+async function renderFreshness() {
+  const { lastRemoteFeedTs = 0, lastThreatFeedTs = 0 } = await api.storage.local.get({
+    lastRemoteFeedTs: 0,
+    lastThreatFeedTs: 0
+  });
+  const oldest = Math.min(
+    lastRemoteFeedTs || 0,
+    lastThreatFeedTs || 0
+  );
+  const el = document.getElementById("freshness");
+  const label = document.getElementById("freshness-label");
+  el.classList.remove("fresh", "stale", "dead");
+  if (!oldest) {
+    el.classList.add("dead");
+    label.textContent = "Threat lists have never updated — check your network";
+    return;
+  }
+  const age = Date.now() - oldest;
+  if (age < 26 * 3600_000) {
+    el.classList.add("fresh");
+    label.textContent = "Threat lists checked " + fmtAge(age);
+  } else if (age < 72 * 3600_000) {
+    el.classList.add("stale");
+    label.textContent = "Threat lists last checked " + fmtAge(age) + " — normally every 24h";
+  } else {
+    el.classList.add("dead");
+    label.textContent = "Threat lists " + fmtAge(age) + " out of date — check network";
+  }
+}
+
 // Clicking a stat card opens the activity page filtered to that category,
 // so the user can see WHICH sites triggered each counter and when.
 for (const el of document.querySelectorAll(".stat[data-type]")) {
@@ -107,6 +147,7 @@ async function refresh() {
   blocklist = state.blocklist || [];
   tempAllow = state.tempAllow || {};
   renderStats(state.stats || {});
+  renderFreshness();
   if (state.statsSince) {
     document.getElementById("stats-since").textContent =
       "since " + new Date(state.statsSince).toLocaleDateString();
