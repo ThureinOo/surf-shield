@@ -877,9 +877,18 @@ api.runtime.onInstalled.addListener(async (details) => {
   await api.storage.local.set(state);
   await syncAllowlistRules();
   await syncPersonalRules();
+  // Feeds only refresh via a daily alarm — without a cold-start pull, a
+  // fresh install has empty threat lists until tomorrow.
+  updateRemoteRules();
+  updateThreatRules();
   if (details.reason === "install") {
     api.tabs.create({ url: api.runtime.getURL("src/ui/onboarding/onboarding.html") });
   }
+});
+
+api.runtime.onStartup.addListener(() => {
+  updateRemoteRules();
+  updateThreatRules();
 });
 
 api.declarativeNetRequest
