@@ -140,11 +140,17 @@ const tabChains = new Map();
 // arriving on a suspicious URL *from* a flagged site is worse than typing it.
 const tabLastHost = new Map();
 
-function warningUrl(blockedUrl, reason, mode) {
-  return api.runtime.getURL(
-    `src/ui/warning/warning.html?url=${encodeURIComponent(blockedUrl)}&reason=${encodeURIComponent(reason)}` +
-      (mode ? `&mode=${mode}` : "")
+function warningUrl(blockedUrl, reason, mode, extra) {
+  let url = api.runtime.getURL(
+    `src/ui/warning/warning.html?url=${encodeURIComponent(blockedUrl)}&reason=${encodeURIComponent(reason)}`
   );
+  if (mode) url += `&mode=${mode}`;
+  if (extra && typeof extra === "object") {
+    for (const [k, v] of Object.entries(extra)) {
+      if (v != null && v !== "") url += `&${k}=${encodeURIComponent(v)}`;
+    }
+  }
+  return url;
 }
 
 function activeTempDomains(tempAllow) {
@@ -329,7 +335,11 @@ api.webNavigation.onCommitted.addListener(async (details) => {
       noteAdActivity();
       await bumpStat("redirects", details.tabId, host);
       const reasonText = "Suspicious redirect chain — " + reasons.slice(0, 3).join("; ");
-      api.tabs.update(details.tabId, { url: warningUrl(details.url, reasonText) });
+      // Pass the sequence of hop hostnames so the warning page can render
+      // the actual redirect chain (bit.ly → landing.click → …), not just
+      // describe it in words.
+      const hops = (chain.hops || []).map((h) => h.host).join(",");
+      api.tabs.update(details.tabId, { url: warningUrl(details.url, reasonText, null, { hops }) });
     }
   }
 });

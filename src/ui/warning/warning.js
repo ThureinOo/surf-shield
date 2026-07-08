@@ -49,21 +49,105 @@ function punycodeDecode(input) {
   return String.fromCodePoint(...output);
 }
 
+// Split a reason string into individual bullets. The scorers concatenate
+// their per-signal reasons with " · " (phishing) or "; " (chain) or bury
+// them after "— " (chain headline). Handle all three.
+function splitReasons(reason) {
+  if (!reason) return [];
+  let s = reason;
+  // Chain reasons look like: "Suspicious redirect chain — 3-hop; sub-second; 2 sus TLDs"
+  // Strip the headline (everything before " — ") so we get just the signals.
+  const dashIdx = s.indexOf(" — ");
+  if (dashIdx !== -1) s = s.slice(dashIdx + 3);
+  // Try semicolon then middle-dot; whichever produces more parts wins.
+  const bySemi = s.split(/\s*;\s*/).filter(Boolean);
+  const byDot  = s.split(/\s+·\s+/).filter(Boolean);
+  return bySemi.length >= byDot.length ? bySemi : byDot;
+}
+
 const params = new URLSearchParams(location.search);
 const blockedUrl = params.get("url") || "";
 const mode = params.get("mode") || "nav";
+const hopsParam = params.get("hops") || "";
 
+const card = document.getElementById("card");
+const iconEl = document.getElementById("icon");
+const titleEl = document.getElementById("title");
+const subtitleEl = document.getElementById("subtitle");
 const backBtn = document.getElementById("back");
 const proceedBtn = document.getElementById("proceed");
+const reasonsEl = document.getElementById("reasons");
+const reasonsSection = document.getElementById("reasons-section");
+const chainSection = document.getElementById("chain-section");
+const chainViz = document.getElementById("chain-viz");
+const blockedUrlEl = document.getElementById("blocked-url");
+const punycodeNote = document.getElementById("punycode-note");
+const footerEl = document.getElementById("footer");
+
+function renderReasonList(items) {
+  reasonsEl.innerHTML = "";
+  if (items.length === 0) {
+    reasonsSection.hidden = true;
+    return;
+  }
+  for (const item of items) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    reasonsEl.appendChild(li);
+  }
+}
+
+// Visual redirect chain: bit.ly → oauth.example.com → landing.click
+function renderChain(hostsStr) {
+  const hosts = hostsStr.split(",").map((h) => h.trim()).filter(Boolean);
+  if (hosts.length < 2) return;
+  chainSection.hidden = false;
+  chainViz.innerHTML = "";
+  hosts.forEach((host, i) => {
+    const span = document.createElement("span");
+    span.className = "hop" + (i === hosts.length - 1 ? " last" : "");
+    span.textContent = host;
+    chainViz.appendChild(span);
+    if (i < hosts.length - 1) {
+      const arrow = document.createElement("span");
+      arrow.className = "arrow";
+      arrow.textContent = "→";
+      chainViz.appendChild(arrow);
+    }
+  });
+}
+
+// Punycode note: show the *rendered* form of an IDN hostname so the user
+// can see the actual glyphs (attackers use Cyrillic а for Latin a etc.).
+function maybeShowPunycodeNote() {
+  try {
+    const host = new URL(blockedUrl).hostname;
+    if (!host.includes("xn--")) return;
+    const decoded = host
+      .split(".")
+      .map((label) => (label.startsWith("xn--") ? punycodeDecode(label.slice(4)) : label))
+      .join(".");
+    if (decoded !== host) {
+      punycodeNote.hidden = false;
+      punycodeNote.textContent =
+        `This address actually displays as ${decoded} — the characters may look like a familiar site but are different letters.`;
+    }
+  } catch {}
+}
+
+// ---- Mode-specific rendering ----
 
 if (mode === "blocked") {
   // Site is on the user's own blocklist.
-  document.querySelector("h1").textContent = "\u{1F6D1} Site blocked by you";
-  document.querySelector(".card p").textContent = "You blocked this site with Surf Shield:";
-  document.getElementById("blocked-url").textContent = blockedUrl;
-  document.getElementById("reason").textContent =
-    "It stays blocked on this browser until you remove it (toolbar icon → Blocked sites).";
+  card.classList.add("blocked");
+  iconEl.textContent = "\u{1F6D1}";
+  titleEl.textContent = "Site blocked by you";
+  subtitleEl.textContent =
+    "You added this site to your personal blocklist. It stays blocked on this browser until you remove it from the extension popup.";
+  blockedUrlEl.textContent = blockedUrl;
+  renderReasonList(["You added this domain to your Blocked sites list"]);
   proceedBtn.textContent = "Unblock this site";
+  backBtn.textContent = "Go back";
 
   backBtn.addEventListener("click", () => {
     if (history.length > 2) history.go(-2);
@@ -79,32 +163,22 @@ if (mode === "blocked") {
     }
   });
 } else if (mode === "download") {
+  // Download risk analysis result — file paused mid-download.
+  card.classList.add("download");
   const dlid = Number(params.get("dlid"));
   const file = params.get("file") || "file";
   const why = (params.get("why") || "Executable file type").split("|");
   const highRisk = why.length >= 3;
-  document.querySelector("h1").textContent = highRisk
-    ? "\u{1F6D1} Dangerous download paused"
-    : "⚠️ Risky download paused";
-  document.getElementById("blocked-url").textContent = `${file}\n${blockedUrl}`;
 
-  const reasonEl = document.getElementById("reason");
-  reasonEl.textContent = highRisk
-    ? "Multiple malware indicators — this is almost certainly NOT a file you want:"
-    : "Only continue if you meant to download this exact file:";
-  const ul = document.createElement("ul");
-  ul.className = "reason";
-  for (const r of why) {
-    const li = document.createElement("li");
-    li.textContent = r;
-    ul.appendChild(li);
-  }
-  reasonEl.after(ul);
-
+  iconEl.textContent = highRisk ? "\u{1F6D1}" : "\u{26A0}\u{FE0F}";
+  titleEl.textContent = highRisk ? "Dangerous download paused" : "Risky download paused";
+  subtitleEl.textContent = highRisk
+    ? "Multiple malware indicators — this is almost certainly NOT a file you want."
+    : "Only continue if you meant to download this exact file.";
+  blockedUrlEl.textContent = file + "\n\n" + blockedUrl;
+  renderReasonList(why);
   backBtn.textContent = "Cancel download";
-  proceedBtn.textContent = highRisk
-    ? "Resume anyway (not recommended)"
-    : "Resume download (I trust it)";
+  proceedBtn.textContent = highRisk ? "Resume anyway (not recommended)" : "Resume download";
 
   backBtn.addEventListener("click", async () => {
     await api.runtime.sendMessage({ type: "download-cancel", dlid });
@@ -115,38 +189,46 @@ if (mode === "blocked") {
     window.close();
   });
 } else {
-  const reason = params.get("reason") || "Flagged as dangerous";
-  document.getElementById("blocked-url").textContent = blockedUrl;
-  document.getElementById("reason").textContent = "Reason: " + reason;
+  // Default nav / list warnings (heuristic phishing, chain, ad URL, threat feed).
+  const reasonStr = params.get("reason") || "Flagged as dangerous";
+  blockedUrlEl.textContent = blockedUrl;
+  renderReasonList(splitReasons(reasonStr));
+  if (hopsParam) renderChain(hopsParam);
+  maybeShowPunycodeNote();
 
-  // Punycode hostnames hide lookalike characters — show the real thing.
-  try {
-    const host = new URL(blockedUrl).hostname;
-    if (host.includes("xn--")) {
-      const decoded = host
-        .split(".")
-        .map((label) =>
-          label.startsWith("xn--") ? punycodeDecode(label.slice(4)) : label
-        )
-        .join(".");
-      if (decoded !== host) {
-        const el = document.createElement("div");
-        el.className = "reason";
-        el.textContent = `This address actually displays as: ${decoded} — the characters may look like a familiar site but are different letters.`;
-        document.getElementById("reason").after(el);
-      }
-    }
-  } catch {}
+  // Choose title/subtitle based on which signal fired.
+  if (mode === "list") {
+    iconEl.textContent = "\u{1F6D1}";
+    titleEl.textContent = "Dangerous site blocked";
+    subtitleEl.textContent =
+      "This domain appears on a public threat-intelligence feed (URLhaus / PhishingArmy / curated list). Real risk of malware or credential theft.";
+  } else if (reasonStr.startsWith("Suspicious redirect chain")) {
+    iconEl.textContent = "\u{27A1}\u{FE0F}";
+    titleEl.textContent = "Suspicious redirect blocked";
+    subtitleEl.textContent =
+      "The chain of pages you were being sent through matches malvertising / forced-download patterns. This is not a normal navigation.";
+  } else if (reasonStr === "Popunder / ad redirect URL") {
+    iconEl.textContent = "\u{1F6D1}";
+    titleEl.textContent = "Popunder ad redirect blocked";
+    subtitleEl.textContent =
+      "The URL structure matches a popunder / click-monetization ad network. Legitimate pages don't use this URL format.";
+  } else {
+    iconEl.textContent = "\u{26A0}\u{FE0F}";
+    titleEl.textContent = "Suspicious page blocked";
+    subtitleEl.textContent =
+      "Heuristic analysis of this URL raised multiple red flags. It could be phishing, brand impersonation, or scam.";
+  }
 
+  backBtn.textContent = "Go back to safety";
   backBtn.addEventListener("click", () => {
     if (history.length > 2) history.go(-2);
     else location.href = "about:blank";
   });
 
   if (mode === "list") {
-    // Domain is on the shared/threat blocklists: strictly one visit at a
-    // time — no 1-hour window, no permanent trust. Next navigation warns again.
+    // Threat-list matches only get one-shot bypass — no 1-hour trust.
     proceedBtn.textContent = "Proceed once (I understand the risk)";
+    footerEl.textContent = "One-time bypass only. Threat-list domains cannot be permanently trusted.";
     proceedBtn.addEventListener("click", async () => {
       try {
         const domain = new URL(blockedUrl).hostname;
@@ -157,9 +239,11 @@ if (mode === "blocked") {
       }
     });
   } else {
-    // Heuristic flag (not on any list): temporary 1-hour trust, since
-    // heuristics can false-positive and re-warning every load is hostile.
+    // Heuristic hits: temp 1-hour trust. But most legit sites don't need
+    // this because the auto-trust set catches them on first successful load.
     proceedBtn.textContent = "Proceed anyway (trust for 1 hour)";
+    footerEl.textContent =
+      "If this is a site you visit normally, once its full page loads without warning it will be added to your auto-trust set — you won't be interrupted here again.";
     proceedBtn.addEventListener("click", async () => {
       try {
         const domain = new URL(blockedUrl).hostname;
