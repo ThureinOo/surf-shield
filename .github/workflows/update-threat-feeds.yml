@@ -43,5 +43,6 @@ jobs:
             echo "No changes"
           else
             git commit -m "threat-feeds: daily update + liveness prune"
+            git pull --rebase
             git push
           fi
